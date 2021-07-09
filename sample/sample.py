@@ -1,10 +1,6 @@
-## License: Apache 2.0. See LICENSE file in root directory.
-## Copyright(c) 2017 Intel Corporation. All Rights Reserved.
-
-#####################################################
-##              Align Depth to Color               ##
-#####################################################
-
+#############################################################
+##       Virtual snare with real sense depth camera           ##
+##############################################################
 # First import the library
 import pyrealsense2 as rs
 # Import Numpy for easy array manipulation
@@ -23,7 +19,6 @@ config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)  #GETS BETTE
 # config.enable_stream(rs.stream.depth, 1280, 720, rs.format.z16, 30)
 # config.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, 30)
 
-
 # Start streaming
 profile = pipeline.start(config)
 
@@ -32,29 +27,25 @@ depth_sensor = profile.get_device().first_depth_sensor()
 depth_scale = depth_sensor.get_depth_scale()
 print("Depth Scale is: " , depth_scale)
 
-# We will be removing the background of objects more than
-#  clipping_distance_in_meters meters away
-clipping_distance_in_meters = 1 #1 meter
-clipping_distance = clipping_distance_in_meters / depth_scale
-
 # Create an align object
 # rs.align allows us to perform alignment of depth frames to others frames
 # The "align_to" is the stream type to which we plan to align depth frames.
 align_to = rs.stream.color
 align = rs.align(align_to)
 
-# Variables for drawing rectangles and debug points in the image
-active_area_top = (250,50)   #active area top coordenate
-active_area_down = (500,400)  #active area width and length from the top coordinate 
-green = (0,255,0) #color bgr
-red = (0,0,255) #color bgr
+# Variables for drawing the rectangles and debug points in the image
+active_area_top = (250,150)   #active area top coordenate (rectangle start)
+active_area_down = (400,300)  #active area width and length from the top coordinate  (rectangle lenght and width)
+green = (0,255,0) #color bgr  CONTACT
+red = (0,0,255) #color bgr    NO CONTACT
 
-active_height = 20  #depth avobe the average of the active area (in RS units, snare skin)
+distance_offset = 20  #depth avobe the average of the active area (in RS units, snare skin)
 frame_counter = 0
 trigger_val = 1.0   #treshold for the detection mask
-avg_frame = None
-ref_frame = None
-
+avg_frame = None  # depth image average distance to the snake skin
+above_frame = None  # depth image above the average frame 
+ 
+cv2.namedWindow('Real Sense Snare Example', cv2.WINDOW_AUTOSIZE)  #OpenCV window obj
 
 # Streaming loop
 try:
@@ -74,13 +65,15 @@ try:
         if not aligned_depth_frame or not color_frame:
             continue
 
+        #Gets data from Real Sense
         depth_image = np.asanyarray(aligned_depth_frame.get_data())
         color_image = np.asanyarray(color_frame.get_data())
 
-        # Calculate the average area in the snare  
+        # Take active area and apply filter to it 
         active_area = depth_image[ active_area_top[1] : active_area_down[1] , active_area_top[0] : active_area_down[0] ]
 
         # Get reference image after 20 frames
+        # The reference image is the snare skin distance. 
         if (frame_counter == 0):
             avg_frame = np.zeros(active_area.shape, dtype=np.uint32)
             frame_counter = frame_counter + 1
@@ -89,40 +82,29 @@ try:
             frame_counter = frame_counter + 1
         elif (frame_counter == 200):
             avg_frame = avg_frame / frame_counter
-            ref_frame = avg_frame - active_height
+            above_frame = avg_frame - distance_offset  # average frame + distance offset
             frame_counter = frame_counter + 1
         
-        # Apply the mas to only the active region
+        # Apply the mask to only the active region
         rect_color = red
-        if ref_frame is not None:
-            above = np.where( (active_area > ref_frame), 255, 0)  #above the active area
-            below = np.where( (active_area < avg_frame), 255, 0)  #below the active area
-            detection_mask = cv2.bitwise_and(above, below)   #AND betwen the areas 
+        if above_frame is not None:
+            above = np.where( (active_area > above_frame), 255, 0)  #above the active area (distance longer to the above frame )
+            below = np.where( (active_area < avg_frame), 255, 0)  #below the active area (distance shorter to the average frame )
+            detection_mask = cv2.bitwise_and(above, below)   #AND betwen the areas  (distance between the above_frame and avg_frame)
             detection_mask = np.array(detection_mask, dtype=np.uint8)  # VISUAL DEBUG ONLY
             
-            # Check the mask to trigger events
+            # Check if there is someting in between the avg_frame and the above_frame
             if (np.mean(detection_mask) > trigger_val ):  
-                rect_color = green
-        
-        
-        
-        
+                rect_color = green  #If so, paint the active area rectangle green
 
-        
-        # Remove background - Set pixels further than clipping_distance to grey
-        grey_color = 153
-        depth_image_3d = np.dstack((depth_image,depth_image,depth_image)) #depth image is 1 channel, color is 3 channels
-        bg_removed = np.where( (depth_image_3d > clipping_distance) | (depth_image_3d <= 0) , grey_color, color_image)
-
-        # Draw rectangle
-        cv2.rectangle(bg_removed,active_area_top,active_area_down,rect_color,3)
-
-        # Render images
+        # Apply color map to depth image 
         depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET)
-        images = np.hstack((bg_removed, depth_colormap))
-        cv2.namedWindow('Align Example', cv2.WINDOW_AUTOSIZE)
-        cv2.imshow('Align Example', images)
-        if ref_frame is not None:
+
+        # Draw rectangle (green if contact, red if not)
+        cv2.rectangle(depth_colormap,active_area_top,active_area_down,rect_color,3)
+        
+        cv2.imshow('Real Sense Snare Example', depth_colormap)
+        if above_frame is not None:
             cv2.imshow('Detection Mask', detection_mask)    #DEBUG
         key = cv2.waitKey(1)
         # Press esc or 'q' to close the image window
