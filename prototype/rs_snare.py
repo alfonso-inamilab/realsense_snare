@@ -53,11 +53,6 @@ frame_counter = 0
 TRIGGER_VAL = 1.0   #treshold for the detection mask
 avg_frame = None  # depth image average distance to the snake skin
 above_frame = None  # depth image above the average frame 
-
-prev_time = 0  # Saves the time of the previous loop (for vel calc)
-distances = []  # Saves the prev distance in every loop (rectangle middle)
-velocities = []  # Saves the prev velocity
-AVGS = 100 # Number of average distances
  
 # Save click events (setups the active areas by user's clicks)
 def click_callback(event,x,y,flags,param):  
@@ -66,9 +61,7 @@ def click_callback(event,x,y,flags,param):
     elif(event == cv2.EVENT_LBUTTONUP):  
         rects_end.append([x,y])
         contacts.append(False)
-        distances.append( [0] * (AVGS+1) )
         rects_contact = False
-        velocities.append(0)
 
 cv2.namedWindow('Real Sense Snare', cv2.WINDOW_AUTOSIZE)  #OpenCV window obj
 cv2.setMouseCallback('Real Sense Snare', click_callback)  #link window for mouse click 
@@ -95,40 +88,6 @@ def contactCheck(mask, trigger):
         if np.mean ( mask[ rects_start[i][1] : r_end[1],  rects_start[i][0] : r_end[0]]) > trigger:
             contacts[i] = True
 
-# Saves the distances of each rectangle and returns the average 
-def avgDistance(dist, index):
-    avg_index = distances[index][0] # The first place of the array saves the current average index
-    
-    #increase the value of the average index
-    avg_index = avg_index + 1
-    if (avg_index >= AVGS):  # loop the index
-        avg_index = 1
-    distances[index][avg_index] = dist  #saves the new value in place
-    distances[index][0] = avg_index + 1 # save index
-
-    #calculate and return the averaga value 
-    avg = 0
-    for i in range(1,AVGS):
-        avg = avg + distances[index][i]
-    return (avg/AVGS)
-
-# Calculates the velocity of with the distance difference in the center of each rectangle
-def calculateVelocities(dt):
-    for i, r_end in enumerate(rects_end):
-        x = rects_start[i][0] - int ( (rects_start[i][0] - r_end[0]) / 2 ) 
-        y = rects_start[i][1] - int ( (rects_start[i][1] - r_end[1]) / 2 ) 
-
-        dist = aligned_depth_frame.get_distance(x,y)  # in meters
-        avg_dist = avgDistance(dist, i)
-        velocity = (dist - avg_dist) / dt
-        rvel = velocities[i] - velocity
-        velocities[i] = velocity  # save velocity for the next cycle
-
-        print(dist - avg_dist)
-        # print ("vel :" + str(i) + " : " + str(velocity))
-        # velocity = ( (dist - distances[i]) ) / dt  # in m/sec
-        # distances.append(dist)
-
 
 # Streaming loop
 try:
@@ -151,11 +110,6 @@ try:
         #Gets data from Real Sense
         depth_image = np.asanyarray(aligned_depth_frame.get_data())
         color_image = np.asanyarray(color_frame.get_data())
-
-        # Define time between loops
-        tt = time.time()
-        dt = tt - prev_time  # in seconds
-        prev_time = tt
 
         # Get reference image after 20 frames
         # The reference image is the snare skin distance. 
@@ -180,9 +134,6 @@ try:
             
             # checks for contacts in the active areas selected by the user
             contactCheck(detection_mask, TRIGGER_VAL)
-
-            # This block calculates the contact velocity in the middle of the rectangles
-            calculateVelocities(0.5)
             
         # Apply color map to depth image 
         depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET)
@@ -199,11 +150,4 @@ try:
             cv2.destroyAllWindows()
             break
 finally:
-    # with open('debug.csv', 'w', newline='') as csvfile:
-    #     spamwriter = csv.writer(csvfile, delimiter=',',
-    #                             quotechar='|', quoting=csv.QUOTE_MINIMAL)
-    #     for i in range(len(distances)):
-    #         spamwriter.writerow( distances[i] )    
-
-
     pipeline.stop()
