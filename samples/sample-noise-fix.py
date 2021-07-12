@@ -1,6 +1,14 @@
 #############################################################
-##       Virtual snare with real sense depth camera           ##
-##############################################################
+##      Virtual snare with real sense depth camera         ##
+##      example thar works with a noisy surface            ##
+#############################################################
+
+# Usage click on rectangular surface on the margins of the drum, 
+# then place the stick on the drum (for triggering calibration) until the depthmask appears
+# Then test by hitting the drum. (green activated, red not)
+
+# (Functionality is not so good, use sample-aruco.py instead)
+
 # First import the library
 import pyrealsense2 as rs
 # Import Numpy for easy array manipulation
@@ -54,15 +62,10 @@ t_calib = []   #saves a calibration trigger avg value for reflective surfaces
 green = (0,255,0) #color bgr  CONTACT
 red = (0,0,255) #color bgr    NO CONTACT
 
-distance_offset = 20  #depth avobe the average of the active area (in RS units, snare skin)
+distance_offset = 25  #depth avobe the average of the active area (in RS units, snare skin)
 frame_counter = 0
 avg_frame = None  # depth image average distance to the snake skin
 above_frame = None  # depth image above the average frame 
-
-# Declare filters
-dec_filter = rs.decimation_filter ()   # Decimation - reduces depth frame density
-spat_filter = rs.spatial_filter()          # Spatial    - edge-preserving spatial smoothing
-temp_filter = rs.temporal_filter()    # Temporal   - reduces temporal noise
  
 # Save click events (setups the active areas by user's clicks)
 def click_callback(event,x,y,flags,param):  
@@ -105,10 +108,7 @@ def contactCheck(mask, trigger):
 
 # Gets the plane equation using 3 points 
 def getPlaneEquation(p1, p2, p3):
-    # p1 = np.array([1, 2, 3])
-    # p2 = np.array([4, 6, 9])
-    # p3 = np.array([12, 11, 9])
-
+    # TODO ensure that any of the 3 ponts has a p3 on zero
     print (p1)
     print (p2)
     print (p3)
@@ -132,7 +132,7 @@ def getContactPlane(x1, y1, x2, y2):
     # plane_eq = getPlaneEquation( np.array( [x1,y1, aligned_depth_frame.get_distance(x1,y1) ] ), np.array( [x2,y2, aligned_depth_frame.get_distance(x2,y2)] ), np.array( [x2,y1, aligned_depth_frame.get_distance(x2,y1) ] ) )
     plane_eq = getPlaneEquation( np.array( [x1,y1, depth_image[y1,x1] ] ), np.array( [x2,y2, depth_image[y2,x2] ] ), np.array( [x2,y1, depth_image[y1,x2] ] ) )
     
-    # Rectangle size plane 
+    # Rectangle size plane   # ANOTHER TYPE OF ACTIVE AREA
     # plane = np.zeros( (y2-y1, x2-x1, 1), dtype=np.float32)
     # for y in range(0, y2-y1):
     #     for x in range(0, x2-x1):
@@ -146,8 +146,8 @@ def getContactPlane(x1, y1, x2, y2):
         for x in range(0, resX):
             plane[y,x] = (plane_eq[3] - (plane_eq[0]*x) - (plane_eq[1]*y))  / plane_eq[2]
             
-    # plt.imshow(plane)
-    # plt.show()
+    # plt.imshow(plane)  # DEBUG 
+    # plt.show()         # DEBUG
     return plane 
 
 
@@ -190,53 +190,28 @@ try:
         if not aligned_depth_frame or not color_frame:
             continue
 
-        # filtered = dec_filter.process(aligned_depth_frame)
-        # filtered = spat_filter.process(filtered)
-        # filtered = temp_filter.process(filtered)
-
         #Gets data from Real Sense
         depth_image = np.asanyarray(aligned_depth_frame.get_data())
         color_image = np.asanyarray(color_frame.get_data())
-
-        # # Get reference image after 20 frames
-        # # The reference image is the snare skin distance. 
-        # if (frame_counter == 0):
-        #     avg_frame = np.zeros(depth_image.shape, dtype=np.uint32)
-        #     frame_counter = frame_counter + 1
-        # elif(frame_counter < 200):  #average the image
-        #     avg_frame = np.add(avg_frame, depth_image)
-        #     frame_counter = frame_counter + 1
-        # elif (frame_counter == 200):
-        #     avg_frame = avg_frame / frame_counter
-        #     above_frame = avg_frame - distance_offset  # average frame + distance offset
-        #     frame_counter = frame_counter + 1
-        
+ 
         # Apply the mask to only the active region
         rect_color = red
-        if planes is not None:
-            # above = np.where( (depth_image > above_frame), 255, 0)  #above the active area (distance longer to the above frame )
-            # below = np.where( (depth_image < avg_frame), 255, 0)  #below the active area (distance shorter to the average frame )
-            # detection_mask = cv2.bitwise_and(above, below)   #AND betwen the areas  (distance between the above_frame and avg_frame)
-            # detection_mask = np.array(detection_mask, dtype=np.uint8)  # VISUAL DEBUG ONLY
+        # For each normal plate (which has been selected with the mouse)
+        for i, normal_plane in enumerate(planes):
+            above_frame = normal_plane - distance_offset  # virtual frame - distance offset
+            above =  np.where( (depth_image > above_frame), 255, 0) #above the active area (distance longer to the above frame )
+            below = np.where( (depth_image < normal_plane), 255, 0) #below the active area (distance shorter to the average frame )
+            detection_mask = cv2.bitwise_and(above, below)  #AND betwen the areas  (distance between the above_frame and avg_frame)
             
-            # # checks for contacts in the active areas selected by the user
-            # contactCheck(detection_mask, TRIGGER_VAL)
-    
-            for i, normal_plane in enumerate(planes):
-                above_frame = normal_plane - distance_offset  # average frame + distance offset
-                above =  np.where( (depth_image > above_frame), 255, 0)
-                below = np.where( (depth_image < normal_plane), 255, 0)
-                detection_mask = cv2.bitwise_and(above, below)
-                detection_mask = np.array(detection_mask, dtype=np.uint8) 
-                cv2.imshow('Detection Mask', detection_mask)    #DEBUG
+            detection_mask = np.array(detection_mask, dtype=np.uint8)   # VISUAL DEBUG ONLY
+            cv2.imshow('Detection Mask', detection_mask)    #DEBUG
 
-                # For reflective surfaces average the error to calibrate the trigger
-
-                if (frame_counter < 200):
-                    frame_counter = frame_counter + 1
-                    t_value =  triggerCalibration(detection_mask, i) 
-                else: 
-                    contactCheck(detection_mask, t_value )
+            # For reflective surfaces average the error to calibrate the trigger
+            if (frame_counter < 200):
+                frame_counter = frame_counter + 1
+                t_value =  triggerCalibration(detection_mask, i) 
+            else: 
+                contactCheck(detection_mask, t_value )
 
         # Apply color map to depth image 
         depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET)
