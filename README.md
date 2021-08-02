@@ -9,6 +9,8 @@ Snare and cymbals hit prediction sensor using a **single** RealSense depth camer
 - `samples/midi_instrument_sample.py` how to change midi instrument (requires conection with MIDI synth)
 - `samples/sample_aruco.py`  snare hit detection using aruco markers  
 - `samples/sample.py`  easiest hit detection with no aruco markers only surface depths (do not work with reflective surfaces)
+- `samples/arduino_accel_sample.py`  how to get acceleration from accelerometer MPU 6050 -> Arduino -> PC (usb)
+- `samples/mp_pose.py` get velocity of users' wrists using motion capture (Mediapipe Pose) 
 
 ## Libraries 
 To run the samples and the prototype you need to install the following libraries:
@@ -29,6 +31,12 @@ Python mido libraries
 pip install mido
 pip install python-rtmidi
 ````
+
+Python Mediapie
+````
+pip install mediapipe
+````
+
 ## Connecting the MIDI synthesizer 
 
 ## TODO tasks
