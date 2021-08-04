@@ -88,6 +88,7 @@ try:
         # Apply the mask to only the active region
         rect_color = red
         if above_frame is not None:
+            # OLD VERSION (DO NOT TOUCH)
             above = np.where( (active_area > above_frame), 255, 0)  #above the active area (distance longer to the above frame )
             below = np.where( (active_area < avg_frame), 255, 0)  #below the active area (distance shorter to the average frame )
             detection_mask = cv2.bitwise_and(above, below)   #AND betwen the areas  (distance between the above_frame and avg_frame)
@@ -95,7 +96,7 @@ try:
 
             # Check if there is someting in between the avg_frame and the above_frame (TRIGGER UPDATED)
             det_mean = np.mean(detection_mask)
-            if ( (det_mean > np.mean(above_mean)) and (det_mean > trigger_val) ):
+            if ( (det_mean > (255 - np.mean(above))) and (det_mean > trigger_val) ):
                 rect_color = green  #If so, paint the active area rectangle green
 
         # Apply color map to depth image 
