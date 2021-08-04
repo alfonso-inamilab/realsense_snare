@@ -92,9 +92,10 @@ try:
             below = np.where( (active_area < avg_frame), 255, 0)  #below the active area (distance shorter to the average frame )
             detection_mask = cv2.bitwise_and(above, below)   #AND betwen the areas  (distance between the above_frame and avg_frame)
             detection_mask = np.array(detection_mask, dtype=np.uint8)  # VISUAL DEBUG ONLY
-            
-            # Check if there is someting in between the avg_frame and the above_frame
-            if (np.mean(detection_mask) > trigger_val ):  
+
+            # Check if there is someting in between the avg_frame and the above_frame (TRIGGER UPDATED)
+            det_mean = np.mean(detection_mask)
+            if ( (det_mean > np.mean(above_mean)) and (det_mean > trigger_val) ):
                 rect_color = green  #If so, paint the active area rectangle green
 
         # Apply color map to depth image 
@@ -105,6 +106,10 @@ try:
         
         cv2.imshow('Real Sense Snare Example', depth_colormap)
         if above_frame is not None:
+            above = np.array(above, dtype=np.uint8)  # VISUAL DEBUG ONLY
+            below = np.array(below, dtype=np.uint8)  # VISUAL DEBUG ONLY
+            cv2.imshow('Above', above)    #DEBUG
+            cv2.imshow('Below', below)    #DEBUG
             cv2.imshow('Detection Mask', detection_mask)    #DEBUG
         key = cv2.waitKey(1)
         # Press esc or 'q' to close the image window
