@@ -96,6 +96,9 @@ try:
 
             # Check if there is someting in between the avg_frame and the above_frame (TRIGGER UPDATED)
             det_mean = np.mean(detection_mask)
+
+            above_mean =  255 - np.mean(above)  # DEBUG
+            print (str(above_mean) + "," +  str(det_mean) + "," + str(above_mean-det_mean)  )   #DEBUG
             if ( (det_mean > (255 - np.mean(above))) and (det_mean > trigger_val) ):
                 rect_color = green  #If so, paint the active area rectangle green
 
