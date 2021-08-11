@@ -217,11 +217,14 @@ def getPlaneEquation(p1, p2, p3):
 
     return (a,b,c,d)
 
-# Uses the depth mask to check for contacts inside the rectangle
-# returns an array with boolean flags. 
 def contactCheck(mask, index, trigger):
-    mean = np.mean (mask[ rects_start[index][1] : rects_end[index][1],  rects_start[index][0] : rects_end[index][0]])
-    if mean > trigger:
+    det_mean = np.mean (mask[ rects_start[index][1] : rects_end[index][1],  rects_start[index][0] : rects_end[index][0]])
+    above_mean = 255 - np.mean (above[ rects_start[index][1] : rects_end[index][1],  rects_start[index][0] : rects_end[index][0]])
+
+    det_mean = det_mean * 10 # This makes the above_mean and det_mean cross each other when touch   #TEST ONLY
+    # print (str(above_mean) + "," +  str(det_mean) + "," + str(above_mean-det_mean)  )   #DEBUG
+
+    if ( (det_mean > above_mean) and (det_mean > trigger) ):  # ORIGINAL FROM sample.py
         contacts[i] = True
     else:
         contacts[i] = False
