@@ -1,12 +1,14 @@
 ##########################################################################
-##        Virtual snare with real sense depth camera                    ##
-##   use aruco markers to define virtual depth plane over the drums     ## 
-##     stick hit should trigger a vel 255 midi message                  ## 
+##        Virtual snare with real sense depth camera                      ##
+##         virtual plane is set over the selected are                     ## 
+##       stick hit should trigger a vel 255 midi message                  ##
+##         (aruco is only used for user id and VR snare tracking          ## 
 ##########################################################################
 
-# TODO. 
-# Measure the stick velocity 
-#    Iiyama-san's accelerometer stick can easisly solve this problem
+# TODO. Test better on reflective surfaces
+# TODO. Use chacuro to detect VR snare movement
+# TODO. GET VELOCITY FROM MOTION TRACKING 
+# TODO. GET POSITION FROM DETECTION MASK
 
 # First import the library
 import pyrealsense2 as rs
@@ -60,7 +62,8 @@ GREEN = (0,255,0) #color bgr  CONTACT
 RED = (0,0,255) #color bgr    NO CONTACT
 WHITE = (255,255,255)  #line beteen aruco and rectangle
 
-DIST_OFFSETS = [3.8,4]  #distance from aruco to the drum skin (INSERT DISTANCE IN cm)
+PLANE_RISE_DIST = 3   # Interval used to raise the virtual plain until above the surface (RS unities)
+DIST_OFFSETS = [0,1.0]  # [3.8,4] ORIGINAL  #distance from aruco to the drum skin (INSERT DISTANCE IN cm)
 rects_start = []   # rectangles origin point (down clicks)
 rects_end = []     # rectangles end points  (up clicks)
 contacts = []     # array with rectangle contact flags
@@ -117,6 +120,14 @@ def draw_rectangles(img, contacts):
             img = cv2.line(img, aruco_corners[i], (rects_start[i][0],rects_start[i][1]), WHITE, 2)  # Draw line between rectangle start and its correspondant aruco
 
 
+# Returns True if the given plane is completely above the given plane img
+def isPlaneAbove(plane, x1, y1, x2, y2):
+    global depth_image
+    above =  np.where( (plane[y1:y2, x1:x2] > depth_image[y1:y2, x1:x2]), 255, 0)
+    if (np.mean(above) > 0):
+        return False
+    return True
+
 # Creates a virtual depth plane using the aruco marker corners and the depth information
 # Returns the plane depth image or none if arucos are not found
 def getContactPlane(x1, y1, x2, y2):
@@ -129,6 +140,8 @@ def getContactPlane(x1, y1, x2, y2):
 
     if ids is not None:
         # Find the nearest aruco from the rectangle start point.
+        # CHANGE. Charuco is used for user identification and movement
+        # TODO. Use chacuro to detect VR snare movement
         ar_indx = 0
         min_dist = resX * resY
         for i, cor in enumerate (corners):
@@ -137,20 +150,51 @@ def getContactPlane(x1, y1, x2, y2):
                 min_dist = dist
                 ar_indx = i
 
-        # get the plane equation from the nearest aruco 
-        c1 = np.array( [corners[ar_indx][0][0][0], corners[ar_indx][0][0][1],  depth_image[int(corners[ar_indx][0][0][1]), int(corners[ar_indx][0][0][0]) ]  ] )
-        c2 = np.array( [corners[ar_indx][0][1][0], corners[ar_indx][0][1][1],  depth_image[int(corners[ar_indx][0][1][1]), int(corners[ar_indx][0][1][0]) ]  ] )
-        c3 = np.array( [corners[ar_indx][0][2][0], corners[ar_indx][0][2][1],  depth_image[int(corners[ar_indx][0][2][1]), int(corners[ar_indx][0][2][0]) ]  ] )
+        # CALCULATE PLANE USING THE RECTANGLE DATA AND CORNERS DEPTH 
+        c1 = np.array( [ x1, y1, depth_image[y1,x1] ] )
+        c2 = np.array( [ x2, y2, depth_image[y2,x2] ] )
+        c3 = np.array( [ x2, y1, depth_image[y1,x2] ] )
+        if (depth_image[y1,x1] <= 0 and depth_image[y2,x2] <= 0 and depth_image[y1,x2] <= 0 ):  # If depth cero cancel.
+            print ("ERROR : Depth in a corner is cero.")
+            return None
         plane_eq = getPlaneEquation( c1, c2, c3 )
-        
+
         # Full screen size plane 
         plane = np.zeros( (resY, resX), dtype=np.float32)
         for y in range(0, resY):
             for x in range(0, resX):
                 plane[y,x] = (plane_eq[3] - (plane_eq[0]*x) - (plane_eq[1]*y))  / plane_eq[2]
-            
-        # plt.imshow(plane)  # DEBUG 
-        # plt.show()         # DEBUG
+                    
+        i = PLANE_RISE_DIST
+        while (isPlaneAbove(plane, x1, y1, x2, y2) == False):
+            c1 = np.array( [ x1, y1, depth_image[y1,x1] - i ] )
+            c2 = np.array( [ x2, y2, depth_image[y2,x2] - i ] )
+            c3 = np.array( [ x2, y1, depth_image[y1,x2] - i ] )
+            plane_eq = getPlaneEquation( c1, c2, c3 )
+
+            plane = np.zeros( (resY, resX), dtype=np.float32)
+            for y in range(0, resY):
+                for x in range(0, resX):
+                    plane[y,x] = (plane_eq[3] - (plane_eq[0]*x) - (plane_eq[1]*y))  / plane_eq[2]
+            i = i + PLANE_RISE_DIST
+
+            # DEBUG USING 3D using Matplot lib
+            # x = np.linspace(x1, x2, x2-x1)    # DEBUG
+            # y = np.linspace(y1, y2, y2-y1)    # DEBUG
+            # X, Y = np.meshgrid(x, y)  # DEBUG
+            # Z = depth_image[y1 : y2, x1 : x2 ]    # DEBUG
+            # Z2 = plane[y1 : y2, x1 : x2 ]     # DEBUG
+            # fig = plt.figure()    # DEBUG
+            # ax = plt.axes(projection='3d')    # DEBUG
+            # ax.contour3D(X, Y, Z, 50, cmap='binary')      # DEBUG
+            # ax.contour3D(X, Y, Z2, 50, cmap='binary')     # DEBUG
+            # ax.set_xlabel('x')    # DEBUG
+            # ax.set_ylabel('y')    # DEBUG
+            # ax.set_zlabel('z')    # DEBUG
+            # plt.show()    # DEBUG
+
+        # plt.imshow(plane)    # DEBUG
+        # plt.show()           # DEBUG
         aruco_corners.append( ( int(corners[ar_indx][0][0][0]), int(corners[ar_indx][0][0][1]) ) ) 
         return plane
        
@@ -160,10 +204,6 @@ def getContactPlane(x1, y1, x2, y2):
 
 # Gets the plane equation using 3 points 
 def getPlaneEquation(p1, p2, p3):
-    # TODO ensure that none of the 3 points has zero depth 
-    print (p1)
-    print (p2)
-    print (p3)
     # These two vectors are in the plane
     v1 = p3 - p1
     v2 = p2 - p1
@@ -190,19 +230,17 @@ def contactCheck(mask, index, trigger):
 # Midi_ON when prev_contact==True and current_contact=False
 # Midi_OFF when prev_contact==False and current_contact=True
 def midiTrigger(prev_contact, current_contact, instrument, note, velocity):
-    # print(str(prev_contact) + " : " + str(current_contact))
     if prev_contact == False and current_contact == True: # MIDI ON
         pc = mido.Message('program_change', program=instrument, channel=1, time=0 ) # Change instrument 
         port.send(pc)
         msg = mido.Message('note_on', note=note, velocity=velocity, channel=1, time=0)
-        port.send(msg)
-        # print (msg.bytes())        
+        port.send(msg)       
     if prev_contact == True and current_contact == False:  # MIDI OFF
         pc = mido.Message('program_change', program=instrument, channel=1, time=0 ) # Change instrument 
         port.send(pc)
         msg = mido.Message('note_off', note=note, velocity=velocity, channel=1, time=0)
         port.send(msg)
-        # print (msg.bytes())
+
 
 # Streaming loop
 try:
@@ -229,17 +267,14 @@ try:
         # For each normal plate (which has been selected with the mouse)
         prev_contacts = contacts.copy()  # Contrast between False and True triggers the MIDI message
         for i, aruco_plane in enumerate(planes):
-            # vr_snare_frame = aruco_plane - DIST_OFFSETS[i]  # virtual frame - distance offset
-            # above =  np.where( (depth_image > vr_snare_frame), 255, 0) #above the active area (distance longer to the above frame )  >
-            # below = np.where( (depth_image < aruco_plane), 255, 0) #below the active area (distance shorter to the average frame ) <
-            # detection_mask = cv2.bitwise_and(above, below)  #AND betwen the areas  (distance between the above_frame and avg_frame)
+            # NEW VERSION ARUCO ATTACHED ON THE SURFACE
+            over = aruco_plane - DIST_OFFSETS[0] 
+            over_over = aruco_plane - DIST_OFFSETS[1]
+            above = np.where( (depth_image > over_over ), 255, 0)
+            below = np.where( (depth_image < over ), 255, 0) 
             
-            # COMPUTE THE DETECTION MASK BETWEEN THE ARUCO MARKER PLANE AND THE VIRTUAL SKIN SNARE
-            vr_snare_frame = aruco_plane + DIST_OFFSETS[i]  # virtual frame - distance offset
-            above =  np.where( (depth_image < vr_snare_frame), 255, 0) #above the active area (distance longer to the above frame )  >
-            below = np.where( (depth_image > aruco_plane), 255, 0) #below the active area (distance shorter to the average frame ) <
-            detection_mask = cv2.bitwise_and(above, below)  #AND betwen the areas  (distance between the above_frame and avg_frame)
-            
+            detection_mask = cv2.bitwise_and(above, below)
+
             # VISUAL DEBUG ONLY
             if (i == 0):
                 debug_mask = np.array(detection_mask, dtype=np.uint8)   # DEBUG
@@ -249,20 +284,13 @@ try:
                 cv2.imshow('below', below[rects_start[i][1] : rects_end[i][1], rects_start[i][0] : rects_end[i][0] ])    #DEBUG
                 cv2.imshow('Detection Mask', debug_mask[rects_start[i][1] : rects_end[i][1], rects_start[i][0] : rects_end[i][0] ] ) 
                 
-                # COMPUTE IF THE STICK IS GOING UP OR DOWN 
-                # minus = below - above
-                # miano = cv2.mean(depth_image, debug_mask)
-                # print(miano[0])
-                # cv2.norm(  , debug_mask )
-                # cv2.imshow("debugito", minus[rects_start[i][1] : rects_end[i][1], rects_start[i][0] : rects_end[i][0] ])   #DEBUG
-
+                # TODO. GET VELOCITY FROM MOTION TRACKING 
+                # TODO. GET POSITION FROM DETECTION MASK
+                
             contactCheck(detection_mask, i, TRIGGER_VAL) # Check if detection mask mean goes beyond the threshold
             
             midiTrigger(prev_contacts[i], contacts[i], INSTRUMENTS[i], 60, 125) #Triggers and stops MIDI sound when contacts have activation or deactivation
         
-        # print (prev_contacts)
-        # print (contacts)
-        # print ("________________")
         # Apply color map to depth image 
         depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET)  # FOR DEBUG ONLY
 
